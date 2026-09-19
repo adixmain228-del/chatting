@@ -14,6 +14,13 @@ body {
 body {
   background-color: #14181d;
   color: #f1efea;
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
 }
 
 ::selection {
