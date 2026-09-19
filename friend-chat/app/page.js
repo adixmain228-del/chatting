@@ -4,10 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 const inputClass =
-  "w-full bg-ink border border-white/10 rounded-chip px-4 py-3 text-paper placeholder:text-muted/60 text-sm outline-none focus:border-signal transition-colors";
+  "w-full bg-ink border border-white/10 rounded-chip px-4 py-3 text-paper placeholder:text-muted/60 text-base outline-none focus:border-signal transition-colors";
 
 const buttonClass =
-  "w-full bg-signal hover:bg-signal2 disabled:opacity-50 disabled:cursor-not-allowed text-ink font-bold py-3 rounded-chip transition-colors";
+  "w-full bg-signal hover:bg-signal2 disabled:opacity-50 disabled:cursor-not-allowed text-ink font-bold py-3 rounded-chip transition-colors touch-manipulation";
 
 function Field({ label, children }) {
   return (
@@ -86,7 +86,7 @@ export default function HomePage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center px-4 py-12">
+    <main className="min-h-dvh flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
         <div className="mb-10 text-center">
           <p className="font-mono text-xs tracking-[0.3em] text-signal uppercase mb-3">
@@ -110,7 +110,7 @@ export default function HomePage() {
                 setMode("create");
                 setError("");
               }}
-              className={`py-3 transition-colors ${
+              className={`py-3 transition-colors touch-manipulation ${
                 mode === "create"
                   ? "bg-signal text-ink font-bold"
                   : "text-muted hover:text-paper"
@@ -124,7 +124,7 @@ export default function HomePage() {
                 setMode("join");
                 setError("");
               }}
-              className={`py-3 transition-colors ${
+              className={`py-3 transition-colors touch-manipulation ${
                 mode === "join"
                   ? "bg-signal text-ink font-bold"
                   : "text-muted hover:text-paper"
@@ -143,6 +143,8 @@ export default function HomePage() {
                     onChange={(e) => setRoomName(e.target.value)}
                     placeholder="Пятничные посиделки"
                     maxLength={40}
+                    autoComplete="off"
+                    enterKeyHint="next"
                     className={inputClass}
                   />
                 </Field>
@@ -152,6 +154,8 @@ export default function HomePage() {
                     onChange={(e) => setDisplayName(e.target.value)}
                     placeholder="Как тебя видят друзья"
                     maxLength={24}
+                    autoComplete="off"
+                    enterKeyHint="go"
                     className={inputClass}
                   />
                 </Field>
@@ -168,6 +172,11 @@ export default function HomePage() {
                     onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
                     placeholder="XK4P9L"
                     maxLength={6}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="characters"
+                    spellCheck="false"
+                    enterKeyHint="next"
                     className={`${inputClass} font-mono tracking-[0.3em] text-center text-lg`}
                   />
                 </Field>
@@ -177,6 +186,8 @@ export default function HomePage() {
                     onChange={(e) => setDisplayName(e.target.value)}
                     placeholder="Как тебя видят друзья"
                     maxLength={24}
+                    autoComplete="off"
+                    enterKeyHint="go"
                     className={inputClass}
                   />
                 </Field>
