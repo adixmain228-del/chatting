@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { joinRoom, getOnlineUsers, getRoomInfo } from "@/lib/store";
 
+export const runtime = "edge";
+export const dynamic = "force-dynamic";
+
 export async function POST(request, { params }) {
   const body = await request.json().catch(() => ({}));
   const username = typeof body.username === "string" ? body.username : "";
@@ -14,8 +17,10 @@ export async function POST(request, { params }) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
-  const info = await getRoomInfo(params.code);
-  const onlineUsers = await getOnlineUsers(params.code);
+  const [info, onlineUsers] = await Promise.all([
+    getRoomInfo(params.code),
+    getOnlineUsers(params.code),
+  ]);
 
   return NextResponse.json({
     ok: true,
