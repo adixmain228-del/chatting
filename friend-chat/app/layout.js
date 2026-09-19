@@ -25,6 +25,13 @@ export const metadata = {
     "Простой чат для друзей: создай комнату, поделись кодом и общайтесь.",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#14181D",
+};
+
 export default function RootLayout({ children }) {
   return (
     <html
