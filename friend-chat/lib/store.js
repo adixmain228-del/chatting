@@ -12,8 +12,12 @@
 //     @upstash/redis. Данные общие для всех функций и переживают "холодные" старты.
 //  2) Если Redis не настроен (например, при локальной разработке `npm run dev`,
 //     где всё работает в одном процессе) — используется резервное хранилище
-//     в памяти. На Vercel без Redis оно ломается по причине выше, поэтому для
-//     деплоя подключение Redis обязательно — подробности в README.md.
+//     в памяти. На Vercel без Redis оно ломается по причине выше.
+//
+// Оптимизация для бесплатного плана: там, где это не критично для консистентности
+// (обновление "последний раз онлайн", запись сообщения), несколько команд Redis
+// объединены в один pipeline-запрос вместо нескольких последовательных обращений —
+// это меньше сетевых round-trip'ов и короче время выполнения функции.
 
 import { Redis } from "@upstash/redis";
 
@@ -31,6 +35,7 @@ const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // без 0/O и 1/I
 const MAX_MESSAGES_PER_ROOM = 300;
 const ONLINE_TIMEOUT_MS = 20_000;
 const ROOM_TTL_SECONDS = 60 * 60 * 24; // 24 часа без активности — комната истекает
+const TRIM_CHANCE = 0.05; // подрезаем историю не на каждом сообщении, а изредка
 
 export function normalizeCode(code) {
   return (code || "").toString().trim().toUpperCase();
@@ -134,6 +139,8 @@ export async function getOnlineUsers(code) {
   const now = Date.now();
 
   if (USE_KV) {
+    // Читаем напрямую, без предварительной проверки существования комнаты:
+    // hgetall на отсутствующий ключ просто вернёт пусто, ошибки не будет.
     const users = (await kv.hgetall(`room:${c}:users`)) || {};
     return Object.entries(users)
       .filter(([, lastSeen]) => now - Number(lastSeen) < ONLINE_TIMEOUT_MS)
@@ -161,10 +168,17 @@ export async function touchUser(code, username) {
   if (!username) return;
 
   if (USE_KV) {
-    if (!(await roomExists(c))) return;
-    await kv.hset(`room:${c}:users`, { [username]: Date.now() });
-    await kv.expire(`room:${c}:users`, ROOM_TTL_SECONDS);
-    await kv.expire(`room:${c}:meta`, ROOM_TTL_SECONDS);
+    // Одна пачка команд вместо трёх последовательных обращений к Redis —
+    // это один сетевой round-trip вместо трёх. Проверку существования комнаты
+    // намеренно не делаем здесь: это "пульс" присутствия, а не создание данных,
+    // и EXPIRE/HSET на уже истёкший ключ просто ничего не делают, без ошибок.
+    const usersKey = `room:${c}:users`;
+    const metaKey = `room:${c}:meta`;
+    const pipeline = kv.pipeline();
+    pipeline.hset(usersKey, { [username]: Date.now() });
+    pipeline.expire(usersKey, ROOM_TTL_SECONDS);
+    pipeline.expire(metaKey, ROOM_TTL_SECONDS);
+    await pipeline.exec();
     return;
   }
 
@@ -182,11 +196,18 @@ async function pushMessage(code, message) {
 
   if (USE_KV) {
     const key = `room:${c}:messages`;
-    await kv.zadd(key, { score: message.ts, member: JSON.stringify(message) });
-    await kv.expire(key, ROOM_TTL_SECONDS);
-    const count = await kv.zcard(key);
-    if (count > MAX_MESSAGES_PER_ROOM) {
-      await kv.zremrangebyrank(key, 0, count - MAX_MESSAGES_PER_ROOM - 1);
+    const pipeline = kv.pipeline();
+    pipeline.zadd(key, { score: message.ts, member: JSON.stringify(message) });
+    pipeline.expire(key, ROOM_TTL_SECONDS);
+    await pipeline.exec();
+
+    // Подрезаем историю не на каждом сообщении, а с вероятностью TRIM_CHANCE —
+    // лишние 300-е сообщение подождёт следующего раза, зато экономим обращения.
+    if (Math.random() < TRIM_CHANCE) {
+      const count = await kv.zcard(key);
+      if (count > MAX_MESSAGES_PER_ROOM) {
+        await kv.zremrangebyrank(key, 0, count - MAX_MESSAGES_PER_ROOM - 1);
+      }
     }
     return message;
   }
@@ -228,8 +249,6 @@ export async function addMessage(code, username, text) {
   if (!cleanText || !username) return null;
   if (!(await roomExists(c))) return null;
 
-  await touchUser(c, username);
-
   const message = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     username,
@@ -237,14 +256,22 @@ export async function addMessage(code, username, text) {
     ts: Date.now(),
   };
 
-  return pushMessage(c, message);
+  // Обновление присутствия и запись сообщения не зависят друг от друга —
+  // запускаем параллельно вместо очереди из двух последовательных запросов.
+  const [saved] = await Promise.all([
+    pushMessage(c, message),
+    touchUser(c, username),
+  ]);
+
+  return saved;
 }
 
 export async function getMessagesSince(code, since = 0) {
   const c = normalizeCode(code);
 
   if (USE_KV) {
-    if (!(await roomExists(c))) return null;
+    // Без предварительной проверки существования — zrange на отсутствующий
+    // ключ безопасно вернёт пустой массив.
     const raw = await kv.zrange(`room:${c}:messages`, since + 1, "+inf", {
       byScore: true,
     });
@@ -254,6 +281,6 @@ export async function getMessagesSince(code, since = 0) {
   }
 
   const room = getMemoryStore().rooms.get(c);
-  if (!room) return null;
+  if (!room) return [];
   return room.messages.filter((m) => m.ts > since);
 }
