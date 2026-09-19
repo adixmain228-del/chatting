@@ -7,23 +7,33 @@ import {
   touchUser,
 } from "@/lib/store";
 
+export const runtime = "edge";
+export const dynamic = "force-dynamic";
+
 export async function GET(request, { params }) {
   const { searchParams } = new URL(request.url);
   const since = Number(searchParams.get("since") || 0);
   const username = searchParams.get("username") || "";
+  // Клиент шлёт heartbeat=1 не на каждый опрос, а раз в несколько секунд —
+  // так мы не пишем "последний раз онлайн" в Redis на каждый тик поллинга.
+  const heartbeat = searchParams.get("heartbeat") === "1";
 
-  const info = await getRoomInfo(params.code);
+  // Все обращения к хранилищу не зависят друг от друга — выполняем их
+  // параллельно, а не по очереди. Это главный выигрыш по времени выполнения
+  // функции: суммарная задержка равна самому долгому запросу, а не их сумме.
+  const [info, messages, onlineUsers] = await Promise.all([
+    getRoomInfo(params.code),
+    getMessagesSince(params.code, since),
+    getOnlineUsers(params.code),
+    heartbeat && username ? touchUser(params.code, username) : Promise.resolve(),
+  ]);
+
   if (!info) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
-  if (username) await touchUser(params.code, username);
-
-  const messages = (await getMessagesSince(params.code, since)) || [];
-  const onlineUsers = await getOnlineUsers(params.code);
-
   return NextResponse.json({
-    messages,
+    messages: messages || [],
     onlineUsers,
     serverTime: Date.now(),
   });
